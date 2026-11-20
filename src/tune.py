@@ -4,8 +4,9 @@
     python src/tune.py 1234   # repeat a run: the seed it printed
 
 Every run and every stage plays new games: new RFQs, private positions and rival books, and a
-random market per game (3-10 rivals, 2bp less to 4bp more aggressive than the benchmark, 2-6bp
-noise), so the settings can't fit one particular set of games. Private positions have the size
+random market per game around the one calibrate.py fitted to round 1 (rivals +-5, +-5bp more
+or less aggressive, styles +-30%, noise and wild share +-50%), so the settings can't fit one
+particular set of games or one exact market. Private positions have the size
 both real games had (backtest.SEAT_SIZES). Within a stage all candidates play the same games,
 so they are compared like for like.
   1. search:   the current settings plus 159 random ones, 40 games
@@ -45,6 +46,8 @@ def current():
 
 
 DEFAULTS = current()         # engine.py as it is now; every candidate starts from these
+MARKET = dict(N_RIVALS=bt.N_RIVALS, RIVAL_SHIFT=bt.RIVAL_SHIFT, TEAM_SPREAD=bt.TEAM_SPREAD,
+              RIVAL_NOISE=bt.RIVAL_NOISE, P_WILD=bt.P_WILD)          # the calibrated market
 
 
 class Candidate:
@@ -86,9 +89,12 @@ def score(task):
     out = []
     for seed in seeds:
         rng = np.random.default_rng(seed)
-        bt.RIVAL_SHIFT, bt.RIVAL_NOISE = rng.uniform(-0.0002, 0.0004), rng.uniform(0.0002, 0.0006)
+        bt.RIVAL_SHIFT = MARKET["RIVAL_SHIFT"] + rng.uniform(-0.0005, 0.0005)
+        bt.TEAM_SPREAD = MARKET["TEAM_SPREAD"] * rng.uniform(0.7, 1.3)
+        bt.RIVAL_NOISE = MARKET["RIVAL_NOISE"] * rng.uniform(0.5, 1.5)
+        bt.P_WILD = MARKET["P_WILD"] * rng.uniform(0.5, 1.5)
         rounds = bt.synthetic_rfqs(rng, SIZES)
-        seats = [bt.synthetic_seat(rng) for _ in range(1 + rng.integers(3, 11))]
+        seats = [bt.synthetic_seat(rng) for _ in range(1 + max(2, MARKET["N_RIVALS"] + int(rng.integers(-5, 6))))]
         rows = bt.play(engine, RIVAL, rounds, seats, rng)
         pnl = [r["pnl"] for r in rows]
         out.append((sum(pnl), np.std(pnl), sum(r["breaches"] for r in rows)))

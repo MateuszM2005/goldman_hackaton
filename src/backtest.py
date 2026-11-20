@@ -14,14 +14,14 @@ Real:     the games in round_0/ (the organisers' example) and Round_1/ (our trai
           both games' P&L files). Synthetic games copy their structure: each round, one RFQ per
           sign pattern of the 5 risks (32), sizes resampled from the real RFQs; private
           delta/vega on a 12-round sine wave of 15 / 3, the size both real games had.
-Assumed:  rivals run benchmark.onnx on their own books plus RIVAL_NOISE (real teams differ more
-          than benchmark copies, which tie a third of the time). The best quote gets TOP_FILL of
-          the RFQ; other quotes get up to REST_FILL, shrinking to nothing GAP below the best.
-          Calibrated by putting benchmark.onnx in the round 0 trader's seat (its files round
-          coupons to 2 decimals): it reproduces the real fill count (141 RFQs), best-quote
-          count (69 vs 60) and round-by-round pattern (corr 0.92), but edge comes out ~35% low
-          and penalties ~65% high. Trust differences between engines more than absolute P&L.
-          Round_1 has full-precision coupons, so it can sharpen this calibration.
+Assumed:  a market fitted to round 1 by src/calibrate.py (rerun it after each new round).
+          N_RIVALS desks quote benchmark.onnx's price on their own books, plus RIVAL_SHIFT,
+          their own lasting style (sd TEAM_SPREAD: some desks are always aggressive) and
+          RIVAL_NOISE per quote; a P_WILD share of quotes are wild, between mid + WILD_LO and
+          the +0.02 limit (round 1 had best quotes up to mid + 1.95%). Fills go by rank,
+          FILL_BY_RANK: in round 1 second place always got ~24% and lower places 2-15%, and
+          our quotes only filled above about mid - 8bp. Replaying round 1 with Shame Street's
+          real engine checks the fit against its real P&L.
 """
 import argparse
 import csv
@@ -44,15 +44,18 @@ UNIT_COST   = np.array([0.006, 0.025, 0.006, 0.006, 0.006])   # hedge / capital 
 LIMIT       = np.array([12.0,  3.0,   3.0,   3.0,   3.0  ])
 BREACH_RATE = np.array([0.05,  0.05,  1.0,   1.0,   1.0  ])   # penalty per $mm over the limit
 OFF_MARKET  = 0.02                                             # |quote - mid| above this: no fill
+PRIVATE_EDGE = 0.1   # $mm a round: the private position is booked at mid - 10bp on $100mm (round 1 files)
 
-# ---- market assumptions (see docstring), calibrated on the round 0 game
-N_RIVALS    = 4
-TOP_FILL    = 0.25         # round 0's fills: ~21-26% when best, ~2-10% otherwise
-REST_FILL   = 0.10
-GAP         = 0.0002
-RIVAL_NOISE = 0.0004       # sd of random noise on each rival quote
-RIVAL_SHIFT = -0.00015     # added to every rival quote; raise it to test a more aggressive field
-SEAT_SIZES  = (1.0,)       # private delta/vega swing 15 x size / 3 x size; both real games: 1
+# ---- market assumptions (see docstring), fitted to round 1 by src/calibrate.py
+N_RIVALS     = 18
+RIVAL_SHIFT  = -0.00019    # added to every rival quote; raise it to test a more aggressive field
+TEAM_SPREAD  = 0.00110     # sd of each desk's lasting style
+RIVAL_NOISE  = 0.00040     # sd of random noise on each rival quote
+P_WILD       = 0.020       # share of rival quotes that are wild...
+WILD_LO      = 0.0081      # ...anywhere from mid + WILD_LO up to the +0.02 limit
+FILL_BY_RANK = np.array([0.500, 0.241, 0.118, 0.072, 0.043, 0.026])   # best, second, ...
+SEAT_SIZES   = (1.0,)      # private delta/vega swing 15 x size / 3 x size; both real games: 1
+REAL_DRAWS   = 20          # each real game is replayed in this many simulated markets, averaged
 
 RISKS = ["Delta", "Vega", "Exotic Risk 1-Vanna", "Exotic Risk 2-Volga", "Exotic Risk 3-Gap risk"]
 SIGNS = np.array([[1 if k >> (4 - i) & 1 else -1 for i in range(5)] for k in range(32)])
@@ -124,8 +127,13 @@ class Engine:
         self.input = self.sess.get_inputs()[0].name
 
     def quote(self, book, rnd, rfqs):
-        X = np.c_[np.tile(book, (len(rfqs), 1)), np.full(len(rfqs), rnd), rfqs].astype(np.float32)
-        return self.sess.run(None, {self.input: X})[0].reshape(-1).astype(float)
+        return self.quote_many(np.atleast_2d(book), rnd, rfqs)[0]
+
+    def quote_many(self, books, rnd, rfqs):
+        """Quotes for several books at once: (books, RFQs), in one call."""
+        X = np.c_[np.repeat(books, len(rfqs), 0), np.full(len(books) * len(rfqs), rnd),
+                  np.tile(rfqs, (len(books), 1))].astype(np.float32)
+        return self.sess.run(None, {self.input: X})[0].reshape(len(books), len(rfqs)).astype(float)
 
 
 def fees(pos):
@@ -138,28 +146,29 @@ def fees(pos):
 def play(engine, rival, rounds, seats, rng):
     """One game with `engine` in seat 0 and `rival` in the others. Returns seat 0's rounds."""
     exo = np.zeros((len(seats), 3))
+    style = RIVAL_SHIFT + TEAM_SPREAD * rng.standard_normal((len(seats) - 1, 1))   # each desk's lean
     out = []
     for t, rfqs in enumerate(rounds, 1):
         mid = rfqs[:, 1]
-        quotes = np.empty((len(seats), len(rfqs)))
-        for i, seat in enumerate(seats):
-            exo[i] += seat[t - 1, 2:]                       # private exotics join the book
-            book = np.r_[seat[t - 1, :2], exo[i]]
-            quotes[i] = (engine if i == 0 else rival).quote(book, t, rfqs)
-        quotes[1:] += RIVAL_SHIFT + RIVAL_NOISE * rng.standard_normal(quotes[1:].shape)
+        exo += np.array([s[t - 1, 2:] for s in seats])     # private exotics join the books
+        books = np.c_[np.array([s[t - 1, :2] for s in seats]), exo]
+        quotes = np.vstack([engine.quote(books[0], t, rfqs), rival.quote_many(books[1:], t, rfqs)])
+        quotes[1:] += style + RIVAL_NOISE * rng.standard_normal(quotes[1:].shape)
+        wild = rng.random(quotes[1:].shape) < P_WILD
+        quotes[1:] = np.where(wild, mid + rng.uniform(WILD_LO, OFF_MARKET - 1e-4, wild.shape), quotes[1:])
         ok = np.isfinite(quotes) & (np.abs(quotes - mid) <= OFF_MARKET)
-        with np.errstate(invalid="ignore"):
-            gap = np.where(ok, quotes, -np.inf).max(0) - quotes
-            fill = np.where(ok, np.where(gap <= 1e-12, TOP_FILL,
-                                         REST_FILL * np.clip(1 - gap / GAP, 0, 1)), 0.0)
+        q = np.where(ok, quotes, -np.inf)
+        rank = 1 + (q[None, :, :] > q[:, None, :]).sum(1)   # 1 = best quote on that RFQ
+        top = len(FILL_BY_RANK)
+        fill = np.where(ok & (rank <= top), FILL_BY_RANK[np.minimum(rank, top) - 1], 0.0)
         took = np.einsum("sr,rk->sk", fill, rfqs[:, 2:])   # risk each seat takes on
         exo += took[:, 2:]
         pos = np.c_[np.array([s[t - 1, :2] for s in seats]) + took[:, :2], exo]
-        edge = (fill[0] * rfqs[:, 0] * (mid - np.where(ok[0], quotes[0], 0))).sum()
+        edge = (fill[0] * rfqs[:, 0] * (mid - np.where(ok[0], quotes[0], 0))).sum() + PRIVATE_EDGE
         hedge, capital, penalty, breaches = fees(pos[0])
         out.append(dict(pnl=edge - hedge - capital - penalty, edge=edge, hedge=hedge,
                         capital=capital, penalty=penalty, breaches=breaches,
-                        filled=int((fill[0] > 0).sum()), best=int((fill[0] == TOP_FILL).sum()),
+                        filled=int((fill[0] > 0).sum()), best=int((ok[0] & (rank[0] == 1)).sum()),
                         off_market=int((~ok[0]).sum())))
     return out
 
@@ -243,18 +252,23 @@ def main():
     engines = [Engine(p) for p in args.engines]
     sizes = rfq_sizes()
     reals = [(files[0], *real_seat(files[1])) for files in ROUNDS.values()]
-    labels = [f"{label}: real game ({trader}'s RFQs and positions)"
+    labels = [f"{label}: real game ({trader}'s RFQs and positions), mean of {REAL_DRAWS} markets"
               for label, (_, _, trader) in zip(ROUNDS, reals)]
     results = {e.name: [] for e in engines}
     for g in range(len(reals) + args.games):
         for e in engines:
+            if g < len(reals):                              # real game: average several markets
+                draws = []
+                for d in range(REAL_DRAWS):
+                    rng = np.random.default_rng(1_000_000 + 1_000 * g + d)
+                    seats = [reals[g][1]] + [synthetic_seat(rng) for _ in range(N_RIVALS)]
+                    draws.append(play(e, rival, real_rfqs(rng, reals[g][0]), seats, rng))
+                results[e.name].append([{k: float(np.mean([dr[t][k] for dr in draws])) for k in draws[0][t]}
+                                        for t in range(12)])
+                continue
             rng = np.random.default_rng(g)                  # same market for every engine
-            if g < len(reals):
-                rounds, seat = real_rfqs(rng, reals[g][0]), reals[g][1]
-            else:
-                rounds = synthetic_rfqs(rng, sizes)
-                seat = synthetic_seat(rng)
-            seats = [seat] + [synthetic_seat(rng) for _ in range(N_RIVALS)]
+            rounds = synthetic_rfqs(rng, sizes)
+            seats = [synthetic_seat(rng)] + [synthetic_seat(rng) for _ in range(N_RIVALS)]
             results[e.name].append(play(e, rival, rounds, seats, rng))
     report(results, labels)
     if args.rounds:
