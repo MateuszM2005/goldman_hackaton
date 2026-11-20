@@ -1,19 +1,27 @@
 """Quoting engine v1 for the FX market-making challenge.
 
-    python engine.py   ->  submission/<TEAM>.onnx  and  submission/TestPredict.csv
+    python src/engine.py   ->  submission/<TEAM>.onnx  and  submission/TestPredict.csv
 
 We PAY the coupon we quote, so a higher quote is better for the client and earns us
 less. For every RFQ:
 
-    quote = mid - cost - MARGIN + discount
+    quote = min(mid - cost - MARGIN + discount, mid + CEILING) + relief
 
   cost      what the trade adds to our bill, per $ of notional: delta/vega hedging,
-            exotic capital for every round left in the game, and limit-breach
-            penalties. Charged in full, so a trade we win never loses money, even
-            when it pushes us over a limit.
-  discount  if the trade offsets risk we already hold, it shrinks our bill. We hand
-            PASS_THROUGH of that saving to the client so we win the trade, never
-            more than MAX_DISCOUNT, and keep the rest.
+            exotic capital for every round left in the game, limit-breach penalties,
+            and an inventory charge that grows with how full each limit already is
+            (SKEW). Charged in full, so a trade we win never loses money, even when
+            it pushes us over a limit.
+  discount  if the trade offsets risk we already hold, it shrinks that bill, and by
+            more the bigger our position is. We hand PASS_THROUGH of that saving to
+            the client so we win the trade, never more than MAX_DISCOUNT, and keep
+            the rest.
+  CEILING   bid shading: rivals rarely pay more than about mid + CEILING, so for an
+            ordinary trade quoting higher only gives edge away.
+  relief    a trade that takes us back under a limit gets extra: BREACH_PASS of the
+            penalty it saves, at most MAX_RELIEF, on top of the ceiling. This is the
+            part of the skew that only switches on when the book is over a limit.
+            PASS_THROUGH + BREACH_PASS <= 1 keeps every won trade profitable.
 
 Fee rules are from the handout, checked against trader_pnl_by_round.csv: delta and
 vega are hedged once at the end of the round; exotics stay on the book and are
@@ -30,17 +38,22 @@ from onnx import TensorProto, helper, numpy_helper
 
 TEAM = "team"            # the submission must be named <team_name>.onnx
 
-# ---- knobs, in coupon units (0.001 = $100k on a $100mm trade) -----------------
-MARGIN       = 0.001     # profit we want on every trade
-PASS_THROUGH = 0.5       # share of an offsetting trade's saving we give to the client
-MAX_DISCOUNT = 0.002     # ...but never more than this, so we never quote above mid + 0.001
-FILL         = 0.25      # share of an RFQ we get when we win it (example game: 2.5-25%)
+# ---- knobs, in coupon units (0.001 = $100k on a $100mm trade); tuned with tune.py
+MARGIN       = 0.00001   # profit we want on every trade (the ceiling already keeps >= 2.4bp)
+PASS_THROUGH = 1.0       # share of an offsetting trade's saving we give to the client
+MAX_DISCOUNT = 0.00174   # ...but never more than this
+SKEW         = 0.05      # inventory aversion: holding a unit of risk costs (1 + SKEW) x its
+                         # hedge/capital cost at a full working limit, 1 + SKEW/2 at half-full
+CEILING      = -0.00024  # never pay more than mid - 2.4bp for an ordinary trade (0.02 = off)
+BREACH_PASS  = 0.0       # extra share of a saved breach penalty we give, above the ceiling
+MAX_RELIEF   = 0.0       # ...but never more than this (off: PASS_THROUGH is already 1)
+FILL         = 0.30      # the most of an RFQ we can get: price as if we get 30% of it
 BOUND        = 0.0195    # |quote - mid| > 0.02 counts as an off-market quote
 
 # ---- desk rules, positions in $mm               delta   vega  vanna  volga    gap
 UNIT_COST     = np.array([[0.006, 0.025, 0.006, 0.006, 0.006]], np.float32)  # hedge / capital per $mm
 BREACH_RATE   = np.array([[0.05,  0.05,  1.00,  1.00,  1.00 ]], np.float32)  # penalty per $mm over limit
-WORKING_LIMIT = np.array([[10.0,  2.5,   2.0,   2.0,   2.0  ]], np.float32)  # official: 12, 3, 3, 3, 3.
+WORKING_LIMIT = np.array([[11.1,  2.25,  2.6,   2.6,   2.6  ]], np.float32)  # official: 12, 3, 3, 3, 3.
 IS_EXOTIC     = np.array([[0,     0,     1,     1,     1    ]], np.float32)  # Buffer: all 32 RFQs fill at once
 ONES          = np.ones((5, 1), np.float32)
 
@@ -63,15 +76,22 @@ def price(X, F):
     # delta/vega are charged once; exotics this round and every round after it
     rounds_charged = 1 + IS_EXOTIC * (12 - F.min(F.max(rnd, 1.0), 12.0))
 
+    def breach(pos):                          # $mm of limit penalties for holding `pos`
+        return BREACH_RATE * F.relu(F.abs(pos) - WORKING_LIMIT) * rounds_charged
+
     def bill(pos):                            # $mm we pay for holding `pos`
         size = F.abs(pos)
-        return (UNIT_COST * size + BREACH_RATE * F.relu(size - WORKING_LIMIT)) * rounds_charged
+        carry = UNIT_COST * size * (1 + 0.5 * SKEW * size / WORKING_LIMIT)   # dearer the fuller
+        return carry * rounds_charged + breach(pos)
 
-    change = bill(book + FILL * rfq) - bill(book)      # per risk, for the piece we would get
+    after  = book + FILL * rfq                          # our book if we get our piece
+    change = bill(after) - bill(book)                   # per risk, for that piece
     piece  = FILL * N                                   # $mm notional of that piece
     cost   = (F.relu(change) @ ONES) / piece            # risk it adds: charged in full
     saving = (F.relu(0.0 - change) @ ONES) / piece      # risk it removes: partly passed on
+    relief = (F.relu(breach(book) - breach(after)) @ ONES) / piece   # of which, breach penalty
     quote  = mid - cost - MARGIN + F.min(PASS_THROUGH * saving, MAX_DISCOUNT)
+    quote  = F.min(quote, mid + CEILING) + F.min(BREACH_PASS * relief, MAX_RELIEF)
     return F.min(F.max(quote, mid - BOUND), mid + BOUND)
 
 
@@ -130,14 +150,14 @@ def export(path):
 
 
 if __name__ == "__main__":
-    here = os.path.dirname(os.path.abspath(__file__))
-    out_dir = os.path.join(here, "submission")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the repo
+    out_dir = os.path.join(root, "submission")
     os.makedirs(out_dir, exist_ok=True)
     onnx_path = os.path.join(out_dir, f"{TEAM}.onnx")
     export(onnx_path)
 
     # quote the organisers' test sample with the exported file, and check it
-    with open(os.path.join(here, "TestPredict.csv"), newline="") as f:
+    with open(os.path.join(root, "round_0", "TestPredict.csv"), newline="") as f:
         rows = list(csv.reader(f))
     X = np.array([r[:13] for r in rows[1:]], np.float32)
     q = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"]).run(None, {"X": X})[0][:, 0]
