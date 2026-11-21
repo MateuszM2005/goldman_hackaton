@@ -1,8 +1,8 @@
 """Market simulator built from the reverse-engineered RFQ generator (standalone: does not
 import backtest.py or engine.py, which are being reworked separately).
 
-    python src/sim_center.py                   # center vs old tuned vs round-1 engine vs benchmark
-    python src/sim_center.py a.onnx b.onnx     # any ONNX engines (never-trade is always added)
+    python src/testing/sim_center.py                   # center vs old tuned vs round-1 engine vs benchmark
+    python src/testing/sim_center.py a.onnx b.onnx     # any ONNX engines (never-trade is always added)
 
 Each engine plays identical games: the 3 real games (their real RFQs and private positions,
 in 10 simulated markets), synthetic games by private-path size (0.5 calm, 1 like games 0-1,
@@ -21,7 +21,7 @@ What is known (checked on the test sample and games 0-2):
             out of tuning (HOLDOUT) and replayed as the validation set.
   Fees      the handout's, matched to the P&L files to 1e-16: delta/vega hedged at the end of
             each round; exotics stay, 0.006 capital and 100% of any excess over 3, every round.
-Assumed (fitted to rounds 1 and 2 by src/calibrate.py; snapshot of its result):
+Assumed (fitted to rounds 1 and 2 by src/testing/calibrate.py; snapshot of its result):
   14 rival desks quoting benchmark.onnx on their own books, plus a lasting style and noise,
   1.5% wild quotes up to +0.02; fills by rank 55% / 24.5% / 14.6% / 4.5% / 1.4% of the RFQ.
 """
@@ -32,14 +32,14 @@ import sys
 import numpy as np
 import onnxruntime as ort
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BENCHMARK = os.path.join(ROOT, "round_0", "benchmark.onnx")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BENCHMARK = os.path.join(ROOT, "data", "game_0", "benchmark.onnx")
 RISKS = ["Delta", "Vega", "Exotic Risk 1-Vanna", "Exotic Risk 2-Volga", "Exotic Risk 3-Gap risk"]
 REAL = {   # quote history, game history, catalogue run holding that game's private exotic path
-    "game 0 (example)": ("round_0/trader_quote_history.csv", "round_0/trader_game_history.csv", 16),
-    "game 1": ("Round_1/trader_quote_history_2.csv", "Round_1/trader_game_history-2.csv", 18),
-    "game 2": ("Round_2/trader_quote_history.csv",
-               "Round_2/trader_game_history-2.csv", 32),
+    "game 0 (example)": ("data/game_0/trader_quote_history.csv", "data/game_0/trader_game_history.csv", 16),
+    "game 1": ("data/game_1/trader_quote_history.csv", "data/game_1/trader_game_history.csv", 18),
+    "game 2": ("data/game_2/trader_quote_history.csv",
+               "data/game_2/trader_game_history.csv", 32),
 }
 
 # ---- fees                                 delta   vega  vanna  volga    gap
@@ -77,7 +77,7 @@ def exotic_paths():
     """36 distinct 12-round private exotic paths (36 x 12 x 3) and the catalogue run -> path map."""
     global _PATHS
     if _PATHS is None:
-        with open(os.path.join(ROOT, "round_0", "TestPredict.csv"), newline="") as f:
+        with open(os.path.join(ROOT, "data", "game_0", "TestPredict.csv"), newline="") as f:
             rows = list(csv.reader(f))
         runs = np.array([[float(c) for c in r[2:5]] for r in rows[1::96]]).reshape(108, 12, 3)
         paths, index = [], []
@@ -282,10 +282,10 @@ def report(engines, games=60, markets=10):
 if __name__ == "__main__":
     paths = sys.argv[1:] or [os.path.join(ROOT, "submissions", "center", "Shame Street.onnx"),
                              os.path.join(ROOT, "submissions", "game_2", "Shame Street.onnx"),
-                             os.path.join(ROOT, "models", "Shame Street.onnx"), BENCHMARK]
+                             os.path.join(ROOT, "submissions", "game_1", "Shame Street.onnx"), BENCHMARK]
     labels = {os.path.join(ROOT, "submissions", "center", "Shame Street.onnx"): "center (new)",
               os.path.join(ROOT, "submissions", "game_2", "Shame Street.onnx"): "old tuned",
               os.path.join(ROOT, "submissions", "cube", "team.onnx"): "cube",
-              os.path.join(ROOT, "models", "Shame Street.onnx"): "round-1 engine", BENCHMARK: "benchmark"}
+              os.path.join(ROOT, "submissions", "game_1", "Shame Street.onnx"): "round-1 engine", BENCHMARK: "benchmark"}
     labels = {os.path.normcase(os.path.abspath(k)): v for k, v in labels.items()}
     report([Onnx(p, labels.get(os.path.normcase(os.path.abspath(p)))) for p in paths] + [NeverTrade()])

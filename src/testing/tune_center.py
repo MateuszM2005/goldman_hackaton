@@ -1,7 +1,7 @@
-"""Tune engine_center.py's settings on catalogue-based games (src/sim_center.py).
+"""Tune engine_center.py's settings on catalogue-based games (src/testing/sim_center.py).
 
-    python src/tune_center.py          # prints the best settings and a validation table
-    python src/tune_center.py 1234     # repeat a run: the seed it printed
+    python src/testing/tune_center.py          # prints the best settings and a validation table
+    python src/testing/tune_center.py 1234     # repeat a run: the seed it printed
 
 Every stage plays new games: new RFQs (any cube rotation), private exotic paths from the
 33 catalogue paths the real games did not use (sizes 0.5 / 1 / 2, so a third are game-2
@@ -19,6 +19,7 @@ import time
 
 import numpy as np
 
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")))   # engine_center.py
 import engine_center as ec
 import sim_center as sc
 
@@ -38,7 +39,7 @@ SPACE = {
     "WL_VEGA":      (2.0, 3.0),
     "WL_EXOTIC":    (1.5, 3.5),       # the first run's best sat at 2.44; 3.0 (the real limit) beat it
 }
-# src/engine.py's tuned settings (commit 0fcf42b), written in this engine's terms
+# src/models/engine.py's tuned settings (commit 0fcf42b), written in this engine's terms
 OLD = dict(MARGIN=0.00001, PASS=1.0, MAX_DISCOUNT=0.00174, CEILING=-0.00024, RELIEF_PASS=0.0,
            MAX_RELIEF=0.0, BREACH_H=12.0, CAPITAL_H=12.0, MOVE_DV=0.3, MOVE_EX=0.3, SKEW=0.05,
            WL_DELTA=11.1, WL_VEGA=2.25, WL_EXOTIC=2.6)

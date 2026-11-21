@@ -1,7 +1,7 @@
 """Tests for engine_center.py and sim_center.py.
 
-    python src/test_engine_center.py          # plain python, no pytest needed
-    python -m pytest src/test_engine_center.py
+    python src/testing/test_engine_center.py          # plain python, no pytest needed
+    python -m pytest src/testing/test_engine_center.py
 
 Engine: the exported ONNX equals price() on the organisers' test sample and on 200k random
 inputs (including nonsense ones); quotes are finite and inside the +-0.02 band; price()
@@ -21,10 +21,11 @@ import numpy as np
 import onnxruntime as ort
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")))   # engine_center.py
 import engine_center as ec   # noqa: E402
 import sim_center as sc      # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _ONNX = {}
 
 
@@ -38,7 +39,7 @@ def onnx_quotes(X, p=None):
 
 
 def sample_rows():
-    with open(os.path.join(ROOT, "round_0", "TestPredict.csv"), newline="") as f:
+    with open(os.path.join(ROOT, "data", "game_0", "TestPredict.csv"), newline="") as f:
         return np.array([r[:13] for r in list(csv.reader(f))[1:]], np.float32)
 
 
@@ -160,10 +161,10 @@ def test_quote_band():
 
 # ---- simulator ----------------------------------------------------------------------
 def test_fees_rebuild_official_pnl_files():
-    files = {"Round_1": ("Round_1/trader_game_history-2.csv", "Round_1/trader_pnl_by_round-2.csv", 1e-9),
-             "Round_2": ("Round_2/trader_game_history-2.csv",
-                         "Round_2/trader_pnl_by_round-2.csv", 1e-9),
-             "round_0": ("round_0/trader_game_history.csv", "round_0/trader_pnl_by_round.csv", 0.03)}
+    files = {"Round_1": ("data/game_1/trader_game_history.csv", "data/game_1/trader_pnl_by_round.csv", 1e-9),
+             "Round_2": ("data/game_2/trader_game_history.csv",
+                         "data/game_2/trader_pnl_by_round.csv", 1e-9),
+             "round_0": ("data/game_0/trader_game_history.csv", "data/game_0/trader_pnl_by_round.csv", 0.03)}
     for name, (history, pnl, tol) in files.items():
         g, p = sc._table(history), sc._table(pnl)
         rnd, risk = sc._num(g["Round"]), np.c_[tuple(sc._num(g[c]) for c in sc.RISKS)]

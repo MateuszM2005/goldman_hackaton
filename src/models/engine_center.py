@@ -1,7 +1,7 @@
 """Quoting engine "center": the old cost-based engine, refined with what games 0-2 and the
 RFQ generator taught us.
 
-    python src/engine_center.py   ->  submissions/center/Shame Street.onnx  and  TestPredict.csv
+    python src/models/engine_center.py   ->  submissions/center/Shame Street.onnx  and  TestPredict.csv
 
 We PAY the coupon we quote (higher = better for the client, less edge for us). The margin
 we leave, mid - quote, follows the distance from the center of risk space:
@@ -18,7 +18,7 @@ we leave, mid - quote, follows the distance from the center of risk space:
             trade back towards it is worth, and the thinner the margin we leave on it.
   breach    a trade that takes us back under a limit may be bid ABOVE mid, up to MAX_RELIEF.
 
-What changed from the old engine (src/engine.py as of commit 0fcf42b), and why. With the
+What changed from the old engine (src/models/engine.py as of commit 0fcf42b), and why. With the
 old settings (tune_center.OLD) this engine reproduces the old one exactly (tested):
   * Breaches are priced over BREACH_H rounds, not every round left. The private exotic
     cycle swings back by itself, and each round's shock can be traded away in the round it
@@ -36,9 +36,9 @@ old settings (tune_center.OLD) this engine reproduces the old one exactly (teste
     get back under a limit, never the +199bp the submitted game-2 engine paid.
   * It passes 32% of the distance removed to the client (old: 100%), so it wins fewer
     small trades in calm games and keeps its firepower for the trades that matter.
-Settings: tuned by src/tune_center.py (random search, 3 stages) on games from
-src/sim_center.py, then WL_EXOTIC moved to 3, then checked by a coordinate search (no
-single setting change improved it) and in src/arena.py, an independently fitted market.
+Settings: tuned by src/testing/tune_center.py (random search, 3 stages) on games from
+src/testing/sim_center.py, then WL_EXOTIC moved to 3, then checked by a coordinate search (no
+single setting change improved it) and in src/testing/arena.py, an independently fitted market.
 """
 import csv
 import os
@@ -51,7 +51,7 @@ from onnx import TensorProto, helper, numpy_helper
 
 TEAM = "Shame Street"
 
-# ---- settings, coupon units (0.001 = $100k on $100mm); tuned with src/tune_center.py
+# ---- settings, coupon units (0.001 = $100k on $100mm); tuned with src/testing/tune_center.py
 P = dict(
     MARGIN=0.0,            # profit we want on a trade that leaves the distance unchanged
     PASS=0.3175,           # share of the distance removed that we hand to the client...
@@ -176,13 +176,13 @@ class Engine:
 
 
 if __name__ == "__main__":
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     out_dir = os.path.join(root, "submissions", "center")
     os.makedirs(out_dir, exist_ok=True)
     onnx_path = os.path.join(out_dir, f"{TEAM}.onnx")
     export(onnx_path)
 
-    with open(os.path.join(root, "round_0", "TestPredict.csv"), newline="") as f:
+    with open(os.path.join(root, "data", "game_0", "TestPredict.csv"), newline="") as f:
         rows = list(csv.reader(f))
     X = np.array([r[:13] for r in rows[1:]], np.float32)
     q = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"]).run(None, {"X": X})[0][:, 0]

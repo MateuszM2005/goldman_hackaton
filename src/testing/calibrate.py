@@ -1,7 +1,7 @@
 """Fit backtest.py's market model to real rounds, using our team's actual quotes there.
 
-    python src/calibrate.py                       # fit to round 1; prints settings for backtest.py
-    python src/calibrate.py "round 1" "round 2"   # pool several rounds (names from backtest.ROUNDS)
+    python src/testing/calibrate.py                       # fit to round 1; prints settings for backtest.py
+    python src/testing/calibrate.py "round 1" "round 2"   # pool several rounds (names from backtest.ROUNDS)
 
 The market model (see backtest.py): N_RIVALS rivals quote the benchmark's price plus
 RIVAL_SHIFT, their own lasting style (sd TEAM_SPREAD: some desks are always aggressive) and

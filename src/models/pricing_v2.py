@@ -116,5 +116,3 @@ def optimal_quote(X):
     dC = np.stack([delta_cost(X, f) for f in FILLS], axis=1)     # (n, 3)
     ev = X[:, 6:7] * A_TAB[None, :] - dC @ P_TAB                # (n, k)
     return X[:, 7] + GRID[np.argmax(ev, axis=1)]
- 
-Claude is responding

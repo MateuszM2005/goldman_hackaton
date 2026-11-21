@@ -1,21 +1,21 @@
 """Backtest ONNX quoting engines on the real games plus synthetic games.
 
-    python src/backtest.py                            # submissions/tuned/team.onnx vs the benchmark
-    python src/backtest.py a.onnx b.onnx --games 50   # any engines, more synthetic games
-    python src/backtest.py --rivals 10 --shift 3      # bigger field, quoting 3bp more aggressively
-    python src/backtest.py --sizes 0.5,1,2            # stress: half- and double-size delta/vega too
-    python src/backtest.py --check                    # rebuild each real game's fees from its fills
+    python src/testing/backtest.py                            # submissions/tuned/team.onnx vs the benchmark
+    python src/testing/backtest.py a.onnx b.onnx --games 50   # any engines, more synthetic games
+    python src/testing/backtest.py --rivals 10 --shift 3      # bigger field, quoting 3bp more aggressively
+    python src/testing/backtest.py --sizes 0.5,1,2            # stress: half- and double-size delta/vega too
+    python src/testing/backtest.py --check                    # rebuild each real game's fees from its fills
 
 Every engine sits in the same seat of the same market (same RFQs, private positions and
 rivals), one run each, so a difference in P&L comes from the engine alone.
 
-Real:     the games in round_0/ (the organisers' example) and Round_1/ (our training game):
+Real:     the games in data/game_0/ (the organisers' example) and data/game_1/ (our training game):
           their RFQs and the trader's private positions, and the fee rules (--check matches
           all three games' P&L files). Synthetic games follow the organisers' generator as
           measured on those games and the test sample: 32 RFQs a round on a (possibly turned)
           exotic cube, private delta/vega on a 12-round sine wave of 15 / 3, and private
           exotics one of the 36 paths in the test sample (sizes 0.5, 1 and 2).
-Assumed:  a market fitted to rounds 1 and 2 by src/calibrate.py (rerun it after each round).
+Assumed:  a market fitted to rounds 1 and 2 by src/testing/calibrate.py (rerun it after each round).
           N_RIVALS desks quote benchmark.onnx's price on their own books, plus RIVAL_SHIFT,
           their own lasting style (sd TEAM_SPREAD: some desks are always aggressive) and
           RIVAL_NOISE per quote; a P_WILD share of quotes are wild, between mid + WILD_LO and
@@ -30,16 +30,16 @@ import os
 import numpy as np
 import onnxruntime as ort
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the repo
-BENCHMARK = "round_0/benchmark.onnx"
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # the repo
+BENCHMARK = "data/game_0/benchmark.onnx"
 ROUNDS = {   # real games: quote history, game history, P&L by round (paths from the repo root)
-    "round 0": ("round_0/trader_quote_history.csv", "round_0/trader_game_history.csv",
-                "round_0/trader_pnl_by_round.csv"),
-    "round 1": ("Round_1/trader_quote_history_2.csv", "Round_1/trader_game_history-2.csv",
-                "Round_1/trader_pnl_by_round-2.csv"),
-    "round 2": ("Round_2/trader_quote_history.csv",
-                "Round_2/trader_game_history-2.csv",
-                "Round_2/trader_pnl_by_round-2.csv"),
+    "round 0": ("data/game_0/trader_quote_history.csv", "data/game_0/trader_game_history.csv",
+                "data/game_0/trader_pnl_by_round.csv"),
+    "round 1": ("data/game_1/trader_quote_history.csv", "data/game_1/trader_game_history.csv",
+                "data/game_1/trader_pnl_by_round.csv"),
+    "round 2": ("data/game_2/trader_quote_history.csv",
+                "data/game_2/trader_game_history.csv",
+                "data/game_2/trader_pnl_by_round.csv"),
 }
 
 # ---- fee rules from the handout           delta   vega  vanna  volga    gap
@@ -49,7 +49,7 @@ BREACH_RATE = np.array([0.05,  0.05,  1.0,   1.0,   1.0  ])   # penalty per $mm 
 OFF_MARKET  = 0.02                                             # |quote - mid| above this: no fill
 PRIVATE_EDGE = 0.1   # $mm a round: the private position is booked at mid - 10bp on $100mm (round 1 files)
 
-# ---- market assumptions (see docstring), fitted to rounds 1 and 2 by src/calibrate.py
+# ---- market assumptions (see docstring), fitted to rounds 1 and 2 by src/testing/calibrate.py
 N_RIVALS     = 14
 RIVAL_SHIFT  = -0.00013    # added to every rival quote; raise it to test a more aggressive field
 TEAM_SPREAD  = 0.00135     # sd of each desk's lasting style
@@ -105,11 +105,11 @@ CATALOGUE = None
 
 def exotic_paths():
     """The organisers' 36 private exotic paths, 12 rounds x (vanna, volga, gap). The distinct books
-    of round_0/TestPredict.csv, in order, are 108 runs of 12 rounds: each path at 3 start angles.
+    of data/game_0/TestPredict.csv, in order, are 108 runs of 12 rounds: each path at 3 start angles.
     All three real games drew their exotics from it (rows 192, 216 and 384 onwards)."""
     global CATALOGUE
     if CATALOGUE is None:
-        X = np.loadtxt(os.path.join(ROOT, "round_0", "TestPredict.csv"), delimiter=",", skiprows=1, usecols=range(5))
+        X = np.loadtxt(os.path.join(ROOT, "data", "game_0", "TestPredict.csv"), delimiter=",", skiprows=1, usecols=range(5))
         _, first = np.unique(X, axis=0, return_index=True)
         runs = X[np.sort(first)].reshape(-1, 12, 5)[:, :, 2:]
         CATALOGUE = np.unique(np.round(runs, 6), axis=0)

@@ -1,6 +1,6 @@
 """Quoting engine v1 for the FX market-making challenge.
 
-    python src/engine.py   ->  submissions/tuned/<TEAM>.onnx  and  submissions/tuned/TestPredict.csv
+    python src/models/engine.py   ->  submissions/tuned/<TEAM>.onnx  and  submissions/tuned/TestPredict.csv
 
 We PAY the coupon we quote, so a higher quote is better for the client and earns us
 less. For every RFQ:
@@ -151,7 +151,7 @@ def export(path, fn=None):
     onnx.save(model, path)
 
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the repo
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # the repo
 
 
 def submit(out_dir, team, fn=None):
@@ -161,7 +161,7 @@ def submit(out_dir, team, fn=None):
     os.makedirs(out_dir, exist_ok=True)
     onnx_path = os.path.join(out_dir, f"{team}.onnx")
     export(onnx_path, fn)
-    with open(os.path.join(ROOT, "round_0", "TestPredict.csv"), newline="") as f:
+    with open(os.path.join(ROOT, "data", "game_0", "TestPredict.csv"), newline="") as f:
         rows = list(csv.reader(f))
     X = np.array([r[:13] for r in rows[1:]], np.float32)
     q = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"]).run(None, {"X": X})[0][:, 0]

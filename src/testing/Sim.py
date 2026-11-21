@@ -11,6 +11,9 @@ Strategia to dowolna funkcja X (n x 13) -> kupony (n,).
 import math
 import numpy as np
 import pandas as pd
+import os
+import sys
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")))   # pricing_v2.py
 from pricing_v2 import state_cost, PEN, LIM
  
 BP = 1e-4
@@ -77,8 +80,8 @@ def play(strategy, rfqs, priv, rng, truth=TRUTH):
  
 if __name__ == "__main__":
     import pricing_v2
-    QUOTES = "Round_1/trader_quote_history_2.csv"      # dowolny plik z kwotowaniami (RFQ są te same)
-    GAMES = {"gra 1": "Round_1/trader_game_history-2.csv"}  # dopisz ścieżkę do gry 2
+    QUOTES = "data/game_1/trader_quote_history.csv"      # dowolny plik z kwotowaniami (RFQ są te same)
+    GAMES = {"gra 1": "data/game_1/trader_game_history.csv"}  # dopisz ścieżkę do gry 2
     rfqs = load_rfqs(QUOTES)
     strategies = {"v2": pricing_v2.optimal_quote, "nie handluj": lambda X: X[:, 7] - 0.0199}
     for sname, strat in strategies.items():
@@ -89,5 +92,3 @@ if __name__ == "__main__":
         for amp in [0.3, 3.5]:
             r = [play(strat, rfqs, synthetic_privates(np.random.default_rng(100 + s), amp), np.random.default_rng(s)) for s in range(20)]
             print(f"{sname:12s} syntetyczna, amplituda {amp}: P&L {np.mean([x['pnl'] for x in r]):7.2f}")
- 
-Claude is responding

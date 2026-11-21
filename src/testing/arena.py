@@ -1,16 +1,16 @@
 """Arena: a data-driven market simulator for backtesting quoting engines (.onnx).
 
-    python src/arena.py                                   # submissions/tuned/team.onnx vs benchmark, synthetic games
-    python src/arena.py a.onnx b.onnx --games 200         # any engines; the last one is the reference
-    python src/arena.py a.onnx --opponents team           # our team's models (+ benchmark) join the field
-    python src/arena.py a.onnx b.onnx --tournament        # all engines in the SAME games, head to head
-    python src/arena.py a.onnx --replay                   # real games 0-2 with the competition we observed
-    python src/arena.py --check                           # fee maths + replay of our real quotes = official P&L
-    python src/arena.py --fit                             # refit the rival field to games 1 and 2
+    python src/testing/arena.py                                   # submissions/tuned/team.onnx vs benchmark, synthetic games
+    python src/testing/arena.py a.onnx b.onnx --games 200         # any engines; the last one is the reference
+    python src/testing/arena.py a.onnx --opponents team           # our team's models (+ benchmark) join the field
+    python src/testing/arena.py a.onnx b.onnx --tournament        # all engines in the SAME games, head to head
+    python src/testing/arena.py a.onnx --replay                   # real games 0-2 with the competition we observed
+    python src/testing/arena.py --check                           # fee maths + replay of our real quotes = official P&L
+    python src/testing/arena.py --fit                             # refit the rival field to games 1 and 2
 
 Separate from backtest.py on purpose: nothing here imports it, so the two can change independently.
 
-What is measured from data (round_0/, Round_1/, Round_2/, the test sample):
+What is measured from data (data/game_0/, data/game_1/, data/game_2/, the test sample):
   RFQs      the organisers reuse ONE set of RFQ draws: games 1 and 2 are identical in every field,
             game 0 is the same draws with the exotic cube drifting 2.058 deg/round. A round is 32
             RFQs in binary sign order (delta, vega, then the 8 cube corners); exotics are
@@ -18,7 +18,7 @@ What is measured from data (round_0/, Round_1/, Round_2/, the test sample):
             Default: those real draws under a random turn (none / drift / fixed). --draws fresh
             draws new ones from the same distributions (notional 90..109, mid U(0.048, 0.058), ...).
   Seats     private delta/vega = size x (-15 sin a, 3 cos a), a +30 deg/round (real games: size 1);
-            private exotics = one of the 36 catalogue paths in round_0/TestPredict.csv (sizes
+            private exotics = one of the 36 catalogue paths in data/game_0/TestPredict.csv (sizes
             0.5 / 1 / 2; game 2 drew a size-2 path, moves up to 5 a round). Every desk gets its own:
             rivals do NOT share our book (game 2: on trades that helped our book the best rival
             quote had median +5bp, never above +50bp).
@@ -47,14 +47,14 @@ import time
 
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FIELD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "arena_field.json")
-BENCHMARK = os.path.join(ROOT, "round_0", "benchmark.onnx")
+BENCHMARK = os.path.join(ROOT, "data", "game_0", "benchmark.onnx")
 GAMES = {   # quote history, game history, P&L by round
-    0: ("round_0/trader_quote_history.csv", "round_0/trader_game_history.csv", "round_0/trader_pnl_by_round.csv"),
-    1: ("Round_1/trader_quote_history_2.csv", "Round_1/trader_game_history-2.csv", "Round_1/trader_pnl_by_round-2.csv"),
-    2: ("Round_2/trader_quote_history.csv", "Round_2/trader_game_history-2.csv",
-        "Round_2/trader_pnl_by_round-2.csv"),
+    0: ("data/game_0/trader_quote_history.csv", "data/game_0/trader_game_history.csv", "data/game_0/trader_pnl_by_round.csv"),
+    1: ("data/game_1/trader_quote_history.csv", "data/game_1/trader_game_history.csv", "data/game_1/trader_pnl_by_round.csv"),
+    2: ("data/game_2/trader_quote_history.csv", "data/game_2/trader_game_history.csv",
+        "data/game_2/trader_pnl_by_round.csv"),
 }
 RISKS = ["Delta", "Vega", "Exotic Risk 1-Vanna", "Exotic Risk 2-Volga", "Exotic Risk 3-Gap risk"]
 SIGNS = np.array([[1 if k >> (4 - i) & 1 else -1 for i in range(5)] for k in range(32)])   # RFQ k's signs
@@ -67,7 +67,7 @@ OFF_MARKET   = 0.02          # |quote - mid| above this: off-market, no fill
 PRIVATE_EDGE = 0.1           # the private position is booked at mid - 10bp on $100mm: $0.1mm a round
 DRIFT_AXIS, DRIFT_RATE = (-0.0799, 0.8227, -0.5629), -2.058   # game 0's cube drift (deg per round)
 
-# ---- the rival field. Overwritten by arena_field.json when it exists (python src/arena.py --fit)
+# ---- the rival field. Overwritten by arena_field.json when it exists (python src/testing/arena.py --fit)
 FIELD = dict(
     n_desks=14,          # rival desks besides the seats under test
     lean_mu=-0.0004,     # each desk's lasting lean vs mid (coupon units; 0.0001 = 1bp)...
@@ -141,9 +141,9 @@ def base_draws():
 
 def catalogue():
     """The 36 private exotic paths (12 rounds x vanna/volga/gap moves): the distinct books of
-    round_0/TestPredict.csv in order are 108 runs of 12 rounds, each path at 3 start angles."""
+    data/game_0/TestPredict.csv in order are 108 runs of 12 rounds, each path at 3 start angles."""
     if "cat" not in _CACHE:
-        X = np.loadtxt(os.path.join(ROOT, "round_0", "TestPredict.csv"), delimiter=",", skiprows=1, usecols=range(5))
+        X = np.loadtxt(os.path.join(ROOT, "data", "game_0", "TestPredict.csv"), delimiter=",", skiprows=1, usecols=range(5))
         _, first = np.unique(X, axis=0, return_index=True)
         runs = X[np.sort(first)].reshape(-1, 12, 5)[:, :, 2:]
         _CACHE["cat"] = np.unique(np.round(runs, 6), axis=0)
@@ -707,6 +707,7 @@ def run_solo(engines, opponents, n_games, seed, draws, turn, jitter, shift):
         regime = int(rng.integers(len(fields)))
         field = jitter_field(rng, fields[regime], jitter)
         field["lean_mu"] += shift * 1e-4
+        field["n_desks"] = max(int(field["n_desks"]), len(opponents) + 2)   # opponents take desks' seats
         mk = Market(rng, field, 1 + len(opponents), draws=draws, turn=turn)
         meta.append(dict(turn=mk.turn, size=path_size(mk.paths[0]), field=names[regime]))
         for e in engines:
@@ -723,6 +724,7 @@ def run_tournament(engines, opponents, n_games, seed, draws, turn, jitter, shift
         fields = regimes()[1]
         field = jitter_field(rng, fields[int(rng.integers(len(fields)))], jitter)
         field["lean_mu"] += shift * 1e-4
+        field["n_desks"] = max(int(field["n_desks"]), len(opponents) + 2)   # opponents take desks' seats
         mk = Market(rng, field, len(engines) + len(opponents), draws=draws, turn=turn)
         order = np.roll(np.arange(len(engines)), gi)
         mk.seats[:len(engines)] = mk.seats[:len(engines)][order]

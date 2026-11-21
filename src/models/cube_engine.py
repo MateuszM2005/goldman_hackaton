@@ -1,6 +1,6 @@
 """Cube engine: the 32 copies of the model plan each round together.
 
-    python src/cube_engine.py   ->  submissions/cube/<TEAM>.onnx  and  submissions/cube/TestPredict.csv
+    python src/models/cube_engine.py   ->  submissions/cube/<TEAM>.onnx  and  submissions/cube/TestPredict.csv
 
 A round's 32 RFQs are the corners of a cube: 2 delta signs x 2 vega signs x 8 exotic corners (the
 exotic part possibly turned). Every copy of the engine sees the same book and round, so each one
@@ -21,16 +21,18 @@ works out the same plan and plays its own part, without seeing the other 31 RFQs
              profit: breakeven minus MARGIN_AWAY.
 """
 import os
+import sys
 
 import numpy as np
 
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "testing")))   # backtest.py
 import backtest as bt
 import engine as en
 from engine import cols
 
 TEAM = "team"
 
-# ---- knobs (coupon units: 0.0001 = 1bp); tuned with `python src/tune.py --cube`
+# ---- knobs (coupon units: 0.0001 = 1bp); tuned with `python src/testing/tune.py --cube`
 MARGIN      = 0.00068   # edge kept on a planned trade, below what the plan is worth
 MARGIN_AWAY = 0.00136   # edge demanded on a trade that moves us away from the target
 F_CAP       = 0.45      # biggest planned share of one RFQ (first place ~55%; past ~44% gets very dear)

@@ -1,8 +1,8 @@
 """Tune engine.py's (or cube_engine.py's) settings in simulation, on fresh random games at every stage.
 
-    python src/tune.py          # engine.py; about two minutes on 12 cores; prints the best settings
-    python src/tune.py --cube   # cube_engine.py instead
-    python src/tune.py 1234     # repeat a run: the seed it printed
+    python src/testing/tune.py          # engine.py; about two minutes on 12 cores; prints the best settings
+    python src/testing/tune.py --cube   # cube_engine.py instead
+    python src/testing/tune.py 1234     # repeat a run: the seed it printed
 
 Every run and every stage plays new games: new RFQs, private positions and rival books, and a
 random market per game around the one calibrate.py fitted to round 1 (rivals +-5, +-5bp more
@@ -22,6 +22,7 @@ import time
 
 import numpy as np
 
+sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")))   # the engines
 import backtest as bt
 import engine as en
 
