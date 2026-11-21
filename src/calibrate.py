@@ -10,7 +10,8 @@ anywhere between mid + WILD_LO and the +0.02 limit. Fills go by rank, FILL_BY_RA
 RANK1, second the observed share, then a geometric tail down to rank K that shares the rest.
 The fit replays our real quotes against simulated rivals many times and matches what really
 happened: how often we came first / second / lower / got nothing, how high the best and
-second-best quotes were, and how big our lower-rank fills were.
+second-best quotes were, and how big our lower-rank fills were. The first- and second-place
+shares are measured directly (round 2: first ~55%, second ~25%).
 """
 import sys
 
@@ -18,7 +19,7 @@ import numpy as np
 
 import backtest as bt
 
-RANK1 = 0.50        # best quote's share; round 0's only first place got 49.5%
+RANK1 = 0.50        # best quote's share if the rounds have no first places to measure it from
 OFF = 0.0199        # quotes stay inside mid +- 0.02
 PCT = [10, 25, 50, 75, 90]
 SPACE = dict(N_RIVALS=(5, 25), RIVAL_SHIFT=(-0.001, 0.003), TEAM_SPREAD=(0, 0.002),
@@ -53,13 +54,14 @@ def summary(mid, mine, fill, best, second, reps=1):
     return dict(counts=np.array([first.sum(), second_place.sum(), lower.sum(), (~filled).sum()]) / reps,
                 best=pct((best - mid)[filled]) * 1e4, second=pct((second - mid)[lower]) * 1e4,
                 tail=np.r_[fill[lower].mean() if lower.any() else np.nan, pct(fill[lower])[[0, 2, 4]]],
+                rank1=fill[first].mean() if first.any() else np.nan,
                 rank2=fill[second_place].mean() if second_place.any() else np.nan)
 
 
-def shares(rank2, k, rho):
-    rest = 1.0 - RANK1 - rank2
+def shares(rank1, rank2, k, rho):
+    rest = 1.0 - rank1 - rank2
     w = rho ** np.arange(k - 2)
-    return np.r_[RANK1, rank2, rest * w / w.sum()]
+    return np.r_[rank1, rank2, rest * w / w.sum()]
 
 
 def simulate(c, mid, mine, bench, rng, reps):
@@ -90,6 +92,7 @@ def main():
     mine, fill, best, second = (np.concatenate([p[i] for p in parts]) for i in range(1, 5))
     mid = X[:, 2]
     obs = summary(mid, mine, fill, best, second)
+    rank1 = obs["rank1"] if np.isfinite(obs["rank1"]) else RANK1
     rank2 = obs["rank2"] if np.isfinite(obs["rank2"]) else 0.24
 
     # benchmark prices for 25 rival desks with books like ours (exotics from private moves only)
@@ -105,7 +108,7 @@ def main():
 
     def make(v):
         c = {k: int(round(x)) if k in ("N_RIVALS", "K") else float(x) for k, x in v.items()}
-        c["FILL_BY_RANK"] = shares(rank2, c["K"], c["RHO"])
+        c["FILL_BY_RANK"] = shares(rank1, rank2, c["K"], c["RHO"])
         return c
     draw = lambda: make({k: rng.uniform(lo, hi) for k, (lo, hi) in SPACE.items()})
     vary = lambda c: make({k: np.clip(c[k] + rng.normal(0, 0.08 * (hi - lo)), lo, hi) for k, (lo, hi) in SPACE.items()})

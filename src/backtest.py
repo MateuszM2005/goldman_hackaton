@@ -3,7 +3,7 @@
     python src/backtest.py                            # submission/team.onnx vs the benchmark
     python src/backtest.py a.onnx b.onnx --games 50   # any engines, more synthetic games
     python src/backtest.py --rivals 10 --shift 3      # bigger field, quoting 3bp more aggressively
-    python src/backtest.py --sizes 0.5,1,2            # stress: half- and double-size positions too
+    python src/backtest.py --sizes 0.5,1,2            # stress: half- and double-size delta/vega too
     python src/backtest.py --check                    # rebuild each real game's fees from its fills
 
 Every engine sits in the same seat of the same market (same RFQs, private positions and
@@ -11,17 +11,17 @@ rivals), one run each, so a difference in P&L comes from the engine alone.
 
 Real:     the games in round_0/ (the organisers' example) and Round_1/ (our training game):
           their RFQs and the trader's private positions, and the fee rules (--check matches
-          both games' P&L files). Synthetic games copy their structure: each round, one RFQ per
-          sign pattern of the 5 risks (32), sizes resampled from the real RFQs; private
-          delta/vega on a 12-round sine wave of 15 / 3, the size both real games had.
-Assumed:  a market fitted to round 1 by src/calibrate.py (rerun it after each new round).
+          all three games' P&L files). Synthetic games follow the organisers' generator as
+          measured on those games and the test sample: 32 RFQs a round on a (possibly turned)
+          exotic cube, private delta/vega on a 12-round sine wave of 15 / 3, and private
+          exotics one of the 36 paths in the test sample (sizes 0.5, 1 and 2).
+Assumed:  a market fitted to rounds 1 and 2 by src/calibrate.py (rerun it after each round).
           N_RIVALS desks quote benchmark.onnx's price on their own books, plus RIVAL_SHIFT,
           their own lasting style (sd TEAM_SPREAD: some desks are always aggressive) and
           RIVAL_NOISE per quote; a P_WILD share of quotes are wild, between mid + WILD_LO and
-          the +0.02 limit (round 1 had best quotes up to mid + 1.95%). Fills go by rank,
-          FILL_BY_RANK: in round 1 second place always got ~24% and lower places 2-15%, and
-          our quotes only filled above about mid - 8bp. Replaying round 1 with Shame Street's
-          real engine checks the fit against its real P&L.
+          the +0.02 limit (best quotes reached mid + 1.99%). Fills go by rank, FILL_BY_RANK:
+          first ~55% of the RFQ, second ~25%, lower places a few %. Replaying what we really
+          quoted in rounds 1 and 2 checks the fit against our real P&L.
 """
 import argparse
 import csv
@@ -37,6 +37,9 @@ ROUNDS = {   # real games: quote history, game history, P&L by round (paths from
                 "round_0/trader_pnl_by_round.csv"),
     "round 1": ("Round_1/trader_quote_history_2.csv", "Round_1/trader_game_history-2.csv",
                 "Round_1/trader_pnl_by_round-2.csv"),
+    "round 2": ("submission_game_2/Round_2/trader_quote_history.csv",
+                "submission_game_2/Round_2/trader_game_history-2.csv",
+                "submission_game_2/Round_2/trader_pnl_by_round-2.csv"),
 }
 
 # ---- fee rules from the handout           delta   vega  vanna  volga    gap
@@ -46,14 +49,14 @@ BREACH_RATE = np.array([0.05,  0.05,  1.0,   1.0,   1.0  ])   # penalty per $mm 
 OFF_MARKET  = 0.02                                             # |quote - mid| above this: no fill
 PRIVATE_EDGE = 0.1   # $mm a round: the private position is booked at mid - 10bp on $100mm (round 1 files)
 
-# ---- market assumptions (see docstring), fitted to round 1 by src/calibrate.py
-N_RIVALS     = 18
-RIVAL_SHIFT  = -0.00019    # added to every rival quote; raise it to test a more aggressive field
-TEAM_SPREAD  = 0.00110     # sd of each desk's lasting style
-RIVAL_NOISE  = 0.00040     # sd of random noise on each rival quote
-P_WILD       = 0.020       # share of rival quotes that are wild...
-WILD_LO      = 0.0081      # ...anywhere from mid + WILD_LO up to the +0.02 limit
-FILL_BY_RANK = np.array([0.500, 0.241, 0.118, 0.072, 0.043, 0.026])   # best, second, ...
+# ---- market assumptions (see docstring), fitted to rounds 1 and 2 by src/calibrate.py
+N_RIVALS     = 14
+RIVAL_SHIFT  = -0.00013    # added to every rival quote; raise it to test a more aggressive field
+TEAM_SPREAD  = 0.00135     # sd of each desk's lasting style
+RIVAL_NOISE  = 0.00053     # sd of random noise on each rival quote
+P_WILD       = 0.015       # share of rival quotes that are wild...
+WILD_LO      = 0.0032      # ...anywhere from mid + WILD_LO up to the +0.02 limit
+FILL_BY_RANK = np.array([0.550, 0.245, 0.146, 0.045, 0.014])   # best, second, ...
 SEAT_SIZES   = (1.0,)      # private delta/vega swing 15 x size / 3 x size; both real games: 1
 REAL_DRAWS   = 20          # each real game is replayed in this many simulated markets, averaged
 
@@ -79,7 +82,7 @@ def real_rfqs(rng, quotes):
     q = table(quotes)
     X = np.c_[tuple(num(q[c]) for c in ["RFQ|Notional", "RFQ|MidValue"] + ["RFQ|" + r for r in RISKS])]
     if np.all(np.round(X[:, 1], 2) == X[:, 1]):
-        X[:, 1] = rng.uniform(np.maximum(X[:, 1] - 0.005, 0.047), np.minimum(X[:, 1] + 0.005, 0.058))
+        X[:, 1] = rng.uniform(np.maximum(X[:, 1] - 0.005, 0.048), np.minimum(X[:, 1] + 0.005, 0.058))
     rnd = num(q["RFQ|Round"])
     return [X[rnd == t] for t in range(1, 13)]
 
@@ -91,32 +94,52 @@ def real_seat(history):
     return np.c_[tuple(num(g[c]) for c in RISKS)][private], g["Trader"][0]
 
 
-def rfq_sizes():
-    """Real RFQ sizes, [notional, |5 risks|], from every real game, to resample from."""
-    rng = np.random.default_rng(0)
-    rounds = [r for quotes, _, _ in ROUNDS.values() for r in real_rfqs(rng, quotes)]
-    return np.abs(np.vstack(rounds))[:, [0, 2, 3, 4, 5, 6]]
+def rotation(a):
+    """Rz(a) @ Ry(a), a in degrees: the exotic cube turns the test sample uses (a = 0, 60, 120)."""
+    c, s = np.cos(np.radians(a)), np.sin(np.radians(a))
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) @ np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
 
 
-def synthetic_rfqs(rng, sizes):
-    """12 rounds like the real ones: one RFQ per sign pattern, sizes drawn from real RFQs."""
+CATALOGUE = None
+
+
+def exotic_paths():
+    """The organisers' 36 private exotic paths, 12 rounds x (vanna, volga, gap). The distinct books
+    of round_0/TestPredict.csv, in order, are 108 runs of 12 rounds: each path at 3 start angles.
+    All three real games drew their exotics from it (rows 192, 216 and 384 onwards)."""
+    global CATALOGUE
+    if CATALOGUE is None:
+        X = np.loadtxt(os.path.join(ROOT, "round_0", "TestPredict.csv"), delimiter=",", skiprows=1, usecols=range(5))
+        _, first = np.unique(X, axis=0, return_index=True)
+        runs = X[np.sort(first)].reshape(-1, 12, 5)[:, :, 2:]
+        CATALOGUE = np.unique(np.round(runs, 6), axis=0)
+    return CATALOGUE
+
+
+def synthetic_rfqs(rng):
+    """12 rounds drawn like the organisers' generator: 32 RFQs = 2 delta signs x 2 vega signs x 8
+    exotic cube corners; |delta| = 4 U(0.8,1.2), |vega| = U(0.8,1.2), exotics = (R corner) x
+    U(0.9,1.1) per component with one cube turn R for the game (none, or Rz(a)Ry(a), a = 60/120);
+    notional a whole number 90-109, mid U(0.048, 0.058)."""
+    R = rotation(rng.choice([0, 60, 120]))
     rounds = []
     for _ in range(12):
-        s = sizes[rng.integers(len(sizes), size=32)]
-        rounds.append(np.c_[s[:, 0], rng.uniform(0.047, 0.058, 32), SIGNS * s[:, 1:]])
+        risk = np.c_[SIGNS[:, :1] * 4 * rng.uniform(0.8, 1.2, (32, 1)), SIGNS[:, 1:2] * rng.uniform(0.8, 1.2, (32, 1)),
+                     (SIGNS[:, 2:] @ R.T) * rng.uniform(0.9, 1.1, (32, 3))]
+        rounds.append(np.c_[rng.integers(90, 110, 32).astype(float), rng.uniform(0.048, 0.058, 32), risk])
     return rounds
 
 
 def synthetic_seat(rng):
-    """12 private positions shaped like the real games': delta/vega on a sine wave of 15 / 3
-    times a size from SEAT_SIZES, an inherited exotic book in round 1, then small moves."""
+    """12 private positions like the real games': delta/vega on a 12-round sine wave of 15 / 3
+    (times a size from SEAT_SIZES) from a random start; exotics one of the 36 catalogue paths."""
     size = rng.choice(SEAT_SIZES)
     angle = rng.uniform(0, 2 * np.pi) + np.arange(1, 13) * np.pi / 6
     seat = np.zeros((12, 5))
     seat[:, 0] = -15 * size * np.sin(angle)
     seat[:, 1] = 3 * size * np.cos(angle)
-    seat[:, 2:] = 0.3 * np.sin(angle[:, None] + rng.uniform(0, 2 * np.pi, 3))
-    seat[0, 2:] += rng.uniform(-2.5, 2.5, 3)
+    paths = exotic_paths()
+    seat[:, 2:] = paths[rng.integers(len(paths))]
     return seat
 
 
@@ -250,7 +273,6 @@ def main():
 
     rival = Engine(os.path.join(ROOT, BENCHMARK))
     engines = [Engine(p) for p in args.engines]
-    sizes = rfq_sizes()
     reals = [(files[0], *real_seat(files[1])) for files in ROUNDS.values()]
     labels = [f"{label}: real game ({trader}'s RFQs and positions), mean of {REAL_DRAWS} markets"
               for label, (_, _, trader) in zip(ROUNDS, reals)]
@@ -267,7 +289,7 @@ def main():
                                         for t in range(12)])
                 continue
             rng = np.random.default_rng(g)                  # same market for every engine
-            rounds = synthetic_rfqs(rng, sizes)
+            rounds = synthetic_rfqs(rng)
             seats = [synthetic_seat(rng)] + [synthetic_seat(rng) for _ in range(N_RIVALS)]
             results[e.name].append(play(e, rival, rounds, seats, rng))
     report(results, labels)

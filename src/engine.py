@@ -96,7 +96,8 @@ def price(X, F):
 
 
 # ---- run price() either on numpy arrays or as an ONNX graph --------------------
-NUMPY = SimpleNamespace(abs=np.abs, relu=lambda a: np.maximum(a, 0), min=np.minimum, max=np.maximum)
+NUMPY = SimpleNamespace(abs=np.abs, relu=lambda a: np.maximum(a, 0), min=np.minimum, max=np.maximum,
+                        exp=np.exp)
 NODES, CONSTS = [], []
 
 
@@ -130,14 +131,15 @@ def op(kind, *args):
 
 
 GRAPH = SimpleNamespace(abs=lambda a: op("Abs", a), relu=lambda a: op("Relu", a),
-                        min=lambda a, b: op("Min", a, b), max=lambda a, b: op("Max", a, b))
+                        min=lambda a, b: op("Min", a, b), max=lambda a, b: op("Max", a, b),
+                        exp=lambda a: op("Exp", a))
 
 
-def export(path):
-    """Same input/output as benchmark.onnx: X (n x 13 float) -> variable (n x 1 float)."""
+def export(path, fn=None):
+    """fn (default price) as ONNX, same input/output as benchmark.onnx: X (n x 13) -> variable (n x 1)."""
     NODES.clear()
     CONSTS.clear()
-    out = price(Sym("X"), GRAPH)
+    out = (fn or price)(Sym("X"), GRAPH)
     NODES.append(helper.make_node("Identity", [out.name], ["variable"]))
     graph = helper.make_graph(NODES, "quoting_engine",
                               [helper.make_tensor_value_info("X", TensorProto.FLOAT, [None, 13])],
@@ -149,19 +151,21 @@ def export(path):
     onnx.save(model, path)
 
 
-if __name__ == "__main__":
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # the repo
-    out_dir = os.path.join(root, "submission")
-    os.makedirs(out_dir, exist_ok=True)
-    onnx_path = os.path.join(out_dir, f"{TEAM}.onnx")
-    export(onnx_path)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))     # the repo
 
-    # quote the organisers' test sample with the exported file, and check it
-    with open(os.path.join(root, "round_0", "TestPredict.csv"), newline="") as f:
+
+def submit(out_dir, team, fn=None):
+    """Export fn (default price) to out_dir/<team>.onnx, quote the organisers' test sample with
+    it into out_dir/TestPredict.csv, and check it against the Python and the 0.02 bound."""
+    fn = fn or price
+    os.makedirs(out_dir, exist_ok=True)
+    onnx_path = os.path.join(out_dir, f"{team}.onnx")
+    export(onnx_path, fn)
+    with open(os.path.join(ROOT, "round_0", "TestPredict.csv"), newline="") as f:
         rows = list(csv.reader(f))
     X = np.array([r[:13] for r in rows[1:]], np.float32)
     q = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"]).run(None, {"X": X})[0][:, 0]
-    assert np.abs(q - price(X, NUMPY)[:, 0]).max() < 1e-6, "ONNX disagrees with price()"
+    assert np.abs(q - fn(X, NUMPY)[:, 0]).max() < 1e-6, "ONNX disagrees with the Python"
     assert np.all(np.abs(q - X[:, 7]) < 0.02), "a quote is off-market"
     for r, v in zip(rows[1:], q):
         r[13:] = [f"{v:.8f}"]
@@ -171,3 +175,7 @@ if __name__ == "__main__":
     s = q - X[:, 7]
     print(f"wrote {onnx_path} and TestPredict.csv ({len(q)} quotes)")
     print("quote - mid, percentiles 1/10/50/90/99:", np.round(np.percentile(s, [1, 10, 50, 90, 99]), 5))
+
+
+if __name__ == "__main__":
+    submit(os.path.join(ROOT, "submission"), TEAM)
