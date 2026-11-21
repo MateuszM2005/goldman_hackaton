@@ -1,6 +1,6 @@
 """Backtest ONNX quoting engines on the real games plus synthetic games.
 
-    python src/backtest.py                            # submission/team.onnx vs the benchmark
+    python src/backtest.py                            # submissions/tuned/team.onnx vs the benchmark
     python src/backtest.py a.onnx b.onnx --games 50   # any engines, more synthetic games
     python src/backtest.py --rivals 10 --shift 3      # bigger field, quoting 3bp more aggressively
     python src/backtest.py --sizes 0.5,1,2            # stress: half- and double-size delta/vega too
@@ -37,9 +37,9 @@ ROUNDS = {   # real games: quote history, game history, P&L by round (paths from
                 "round_0/trader_pnl_by_round.csv"),
     "round 1": ("Round_1/trader_quote_history_2.csv", "Round_1/trader_game_history-2.csv",
                 "Round_1/trader_pnl_by_round-2.csv"),
-    "round 2": ("submission_game_2/Round_2/trader_quote_history.csv",
-                "submission_game_2/Round_2/trader_game_history-2.csv",
-                "submission_game_2/Round_2/trader_pnl_by_round-2.csv"),
+    "round 2": ("Round_2/trader_quote_history.csv",
+                "Round_2/trader_game_history-2.csv",
+                "Round_2/trader_pnl_by_round-2.csv"),
 }
 
 # ---- fee rules from the handout           delta   vega  vanna  volga    gap
@@ -257,7 +257,7 @@ def rounds_table(results, labels):
 def main():
     global N_RIVALS, RIVAL_SHIFT, SEAT_SIZES
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("engines", nargs="*", default=[os.path.join(ROOT, "submission", "team.onnx"),
+    ap.add_argument("engines", nargs="*", default=[os.path.join(ROOT, "submissions", "tuned", "team.onnx"),
                                                    os.path.join(ROOT, BENCHMARK)])
     ap.add_argument("--games", type=int, default=20, help="synthetic games after the real games")
     ap.add_argument("--rivals", type=int, default=N_RIVALS, help="number of rival desks")

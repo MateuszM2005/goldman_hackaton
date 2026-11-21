@@ -1,6 +1,6 @@
 """Arena: a data-driven market simulator for backtesting quoting engines (.onnx).
 
-    python src/arena.py                                   # submission/team.onnx vs benchmark, synthetic games
+    python src/arena.py                                   # submissions/tuned/team.onnx vs benchmark, synthetic games
     python src/arena.py a.onnx b.onnx --games 200         # any engines; the last one is the reference
     python src/arena.py a.onnx --opponents team           # our team's models (+ benchmark) join the field
     python src/arena.py a.onnx b.onnx --tournament        # all engines in the SAME games, head to head
@@ -10,7 +10,7 @@
 
 Separate from backtest.py on purpose: nothing here imports it, so the two can change independently.
 
-What is measured from data (round_0/, Round_1/, submission_game_2/Round_2/, the test sample):
+What is measured from data (round_0/, Round_1/, Round_2/, the test sample):
   RFQs      the organisers reuse ONE set of RFQ draws: games 1 and 2 are identical in every field,
             game 0 is the same draws with the exotic cube drifting 2.058 deg/round. A round is 32
             RFQs in binary sign order (delta, vega, then the 8 cube corners); exotics are
@@ -53,8 +53,8 @@ BENCHMARK = os.path.join(ROOT, "round_0", "benchmark.onnx")
 GAMES = {   # quote history, game history, P&L by round
     0: ("round_0/trader_quote_history.csv", "round_0/trader_game_history.csv", "round_0/trader_pnl_by_round.csv"),
     1: ("Round_1/trader_quote_history_2.csv", "Round_1/trader_game_history-2.csv", "Round_1/trader_pnl_by_round-2.csv"),
-    2: ("submission_game_2/Round_2/trader_quote_history.csv", "submission_game_2/Round_2/trader_game_history-2.csv",
-        "submission_game_2/Round_2/trader_pnl_by_round-2.csv"),
+    2: ("Round_2/trader_quote_history.csv", "Round_2/trader_game_history-2.csv",
+        "Round_2/trader_pnl_by_round-2.csv"),
 }
 RISKS = ["Delta", "Vega", "Exotic Risk 1-Vanna", "Exotic Risk 2-Volga", "Exotic Risk 3-Gap risk"]
 SIGNS = np.array([[1 if k >> (4 - i) & 1 else -1 for i in range(5)] for k in range(32)])   # RFQ k's signs
@@ -838,7 +838,7 @@ def main():
             show_fit(field_for(k), [RealGame(k)])
         return
 
-    paths = a.engines or [os.path.join(ROOT, "submission", "team.onnx"), BENCHMARK]
+    paths = a.engines or [os.path.join(ROOT, "submissions", "tuned", "team.onnx"), BENCHMARK]
     paths = [p for x in paths for p in (sorted(glob.glob(x)) or [x])]
     engines = [Onnx(p) for p in paths]
     stems = [e.name for e in engines]

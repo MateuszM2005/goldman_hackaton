@@ -38,8 +38,8 @@ RISKS = ["Delta", "Vega", "Exotic Risk 1-Vanna", "Exotic Risk 2-Volga", "Exotic 
 REAL = {   # quote history, game history, catalogue run holding that game's private exotic path
     "game 0 (example)": ("round_0/trader_quote_history.csv", "round_0/trader_game_history.csv", 16),
     "game 1": ("Round_1/trader_quote_history_2.csv", "Round_1/trader_game_history-2.csv", 18),
-    "game 2": ("submission_game_2/Round_2/trader_quote_history.csv",
-               "submission_game_2/Round_2/trader_game_history-2.csv", 32),
+    "game 2": ("Round_2/trader_quote_history.csv",
+               "Round_2/trader_game_history-2.csv", 32),
 }
 
 # ---- fees                                 delta   vega  vanna  volga    gap
@@ -280,12 +280,12 @@ def report(engines, games=60, markets=10):
 
 
 if __name__ == "__main__":
-    paths = sys.argv[1:] or [os.path.join(ROOT, "submission_center", "Shame Street.onnx"),
-                             os.path.join(ROOT, "submission_game_2", "Shame Street.onnx"),
+    paths = sys.argv[1:] or [os.path.join(ROOT, "submissions", "center", "Shame Street.onnx"),
+                             os.path.join(ROOT, "submissions", "game_2", "Shame Street.onnx"),
                              os.path.join(ROOT, "models", "Shame Street.onnx"), BENCHMARK]
-    labels = {os.path.join(ROOT, "submission_center", "Shame Street.onnx"): "center (new)",
-              os.path.join(ROOT, "submission_game_2", "Shame Street.onnx"): "old tuned",
-              os.path.join(ROOT, "submission_cube", "team.onnx"): "cube",
+    labels = {os.path.join(ROOT, "submissions", "center", "Shame Street.onnx"): "center (new)",
+              os.path.join(ROOT, "submissions", "game_2", "Shame Street.onnx"): "old tuned",
+              os.path.join(ROOT, "submissions", "cube", "team.onnx"): "cube",
               os.path.join(ROOT, "models", "Shame Street.onnx"): "round-1 engine", BENCHMARK: "benchmark"}
     labels = {os.path.normcase(os.path.abspath(k)): v for k, v in labels.items()}
     report([Onnx(p, labels.get(os.path.normcase(os.path.abspath(p)))) for p in paths] + [NeverTrade()])

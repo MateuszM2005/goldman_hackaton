@@ -1,6 +1,6 @@
 """Cube engine: the 32 copies of the model plan each round together.
 
-    python src/cube_engine.py   ->  submission_cube/<TEAM>.onnx  and  submission_cube/TestPredict.csv
+    python src/cube_engine.py   ->  submissions/cube/<TEAM>.onnx  and  submissions/cube/TestPredict.csv
 
 A round's 32 RFQs are the corners of a cube: 2 delta signs x 2 vega signs x 8 exotic corners (the
 exotic part possibly turned). Every copy of the engine sees the same book and round, so each one
@@ -121,4 +121,4 @@ def price(X, F):
 
 
 if __name__ == "__main__":
-    en.submit(os.path.join(en.ROOT, "submission_cube"), TEAM, price)
+    en.submit(os.path.join(en.ROOT, "submissions", "cube"), TEAM, price)

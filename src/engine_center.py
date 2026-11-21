@@ -1,7 +1,7 @@
 """Quoting engine "center": the old cost-based engine, refined with what games 0-2 and the
 RFQ generator taught us.
 
-    python src/engine_center.py   ->  submission_center/Shame Street.onnx  and  TestPredict.csv
+    python src/engine_center.py   ->  submissions/center/Shame Street.onnx  and  TestPredict.csv
 
 We PAY the coupon we quote (higher = better for the client, less edge for us). The margin
 we leave, mid - quote, follows the distance from the center of risk space:
@@ -177,7 +177,7 @@ class Engine:
 
 if __name__ == "__main__":
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out_dir = os.path.join(root, "submission_center")
+    out_dir = os.path.join(root, "submissions", "center")
     os.makedirs(out_dir, exist_ok=True)
     onnx_path = os.path.join(out_dir, f"{TEAM}.onnx")
     export(onnx_path)

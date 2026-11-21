@@ -1,6 +1,6 @@
 """Quoting engine v1 for the FX market-making challenge.
 
-    python src/engine.py   ->  submission/<TEAM>.onnx  and  submission/TestPredict.csv
+    python src/engine.py   ->  submissions/tuned/<TEAM>.onnx  and  submissions/tuned/TestPredict.csv
 
 We PAY the coupon we quote, so a higher quote is better for the client and earns us
 less. For every RFQ:
@@ -178,4 +178,4 @@ def submit(out_dir, team, fn=None):
 
 
 if __name__ == "__main__":
-    submit(os.path.join(ROOT, "submission"), TEAM)
+    submit(os.path.join(ROOT, "submissions", "tuned"), TEAM)

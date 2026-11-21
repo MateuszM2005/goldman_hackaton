@@ -104,7 +104,7 @@ def reference_quote(x, p):
 def test_old_settings_reproduce_the_old_engine():
     """With engine.py's tuned settings (as submitted for game 2), the center engine IS the old one."""
     import tune_center
-    old = ort.InferenceSession(os.path.join(ROOT, "submission_game_2", "Shame Street.onnx"),
+    old = ort.InferenceSession(os.path.join(ROOT, "submissions", "game_2", "Shame Street.onnx"),
                                providers=["CPUExecutionProvider"])
     for X in (sample_rows(), random_inputs(np.random.default_rng(11), 50_000)):
         q_old = old.run(None, {old.get_inputs()[0].name: X})[0][:, 0]
@@ -161,8 +161,8 @@ def test_quote_band():
 # ---- simulator ----------------------------------------------------------------------
 def test_fees_rebuild_official_pnl_files():
     files = {"Round_1": ("Round_1/trader_game_history-2.csv", "Round_1/trader_pnl_by_round-2.csv", 1e-9),
-             "Round_2": ("submission_game_2/Round_2/trader_game_history-2.csv",
-                         "submission_game_2/Round_2/trader_pnl_by_round-2.csv", 1e-9),
+             "Round_2": ("Round_2/trader_game_history-2.csv",
+                         "Round_2/trader_pnl_by_round-2.csv", 1e-9),
              "round_0": ("round_0/trader_game_history.csv", "round_0/trader_pnl_by_round.csv", 0.03)}
     for name, (history, pnl, tol) in files.items():
         g, p = sc._table(history), sc._table(pnl)
